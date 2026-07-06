@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 用户配置（含路径等本地信息，不上传）
+widget_settings.json
+
+# 打包/构建产物
+*.exe
+build/
+dist/
+*.spec
+
+# 日志 / 临时
+*.log
+test_*.txt
+verify_*.txt
+verify_ico.py
+check_ico.py
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本仓库仅放 release 版 exe
+!releases/**/*.exe
