@@ -105,3 +105,4 @@ netspeed/
 ## 作者
 
 - **ok0735** — [GitHub](https://github.com/ok0735)
+# netspeed-widget
