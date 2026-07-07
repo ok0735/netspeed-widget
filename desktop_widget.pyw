@@ -490,13 +490,15 @@ class DesktopWidget:
         self._alarm_menu.add_command(label="测试铃声",   command=self._alarm_test_sound)
         self._menu.add_cascade(label="⏰ 闹钟", menu=self._alarm_menu)
 
-        # ⚡ 系统工具
+        # ⚡ 系统工具（直接放在主菜单）
+        self._menu.add_separator()
+        self._menu.add_command(label="释放内存",      command=self._clean_memory)
+        self._menu.add_command(label="清理临时文件",  command=self._clean_temp_files)
+
+        # ⚡ 系统工具子菜单（仅保留 显示CPU/内存）
         self._tools_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
                                    activebackground="#E0E0E0", activeforeground="black",
                                    borderwidth=1, relief="solid", font=MENU_FONT)
-        self._tools_menu.add_command(label="释放内存",      command=self._clean_memory)
-        self._tools_menu.add_command(label="清理临时文件",  command=self._clean_temp_files)
-        self._tools_menu.add_separator()
         self._sv_var = tk.BooleanVar(value=self.settings.get("show_sys_info", True))
         self._tools_menu.add_checkbutton(label="显示CPU/内存",
                                          variable=self._sv_var,
