@@ -186,6 +186,18 @@ PYTHON_PATH   = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
 if not os.path.isfile(PYTHON_PATH):
     PYTHON_PATH = sys.executable
 
+# 打包资源路径辅助函数（exe 运行时用 sys._MEIPASS）
+def _resource_path(relative_path):
+    """获取资源文件路径，兼容开发模式和 exe 打包模式"""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        base = SCRIPT_DIR
+    return os.path.join(base, relative_path)
+
+# 默认提醒铃声
+DEFAULT_ALARM_SOUND = _resource_path("ml.mp3")
+
 # 清理旧的快捷方式自启动（已废弃）
 OLD_STARTUP_DIR = os.path.join(
     os.environ.get("APPDATA", ""),
@@ -212,7 +224,7 @@ DEFAULT_SETTINGS = {
     "pomo_count_target": 4,
     # 闹钟
     "alarms": [],
-    "alarm_sound": "beep",       # "beep" / "chime" / "alarm" / "gentle" / 文件路径
+    "alarm_sound": "ml.mp3",    # 内置铃声（ml.mp3 已打包进 exe）
     # 系统
     "show_sys_info": True,       # 是否显示CPU/内存行
     # 显示
@@ -420,13 +432,20 @@ class DesktopWidget:
 
     # ── 右键菜单 ──────────────────────────────────────────
     def _bind_context_menu(self):
-        HERMES = "#E8652E"
-        self._menu = tk.Menu(self.root, tearoff=0, bg=HERMES, fg="white",
-                             activebackground="#D4602A", activeforeground="white",
+        MENU_BG = "#F0F0F0"  # 浅灰背景
+        self._menu = tk.Menu(self.root, tearoff=0, bg=MENU_BG, fg="black",
+                             activebackground="#E0E0E0", activeforeground="black",
                              borderwidth=1, relief="solid")
         self._menu.add_command(label="更改颜色",  command=self._choose_color)
         self._menu.add_command(label="调节透明度", command=self._adjust_opacity)
-        self._menu.add_command(label="调节大小",   command=self._adjust_font_scale)
+        # 字号快速切换
+        size_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
+                            activebackground="#E0E0E0", activeforeground="black",
+                            borderwidth=1, relief="solid")
+        size_menu.add_command(label="大 100%", command=lambda: self._set_font_scale(1.0))
+        size_menu.add_command(label="中  75%", command=lambda: self._set_font_scale(0.75))
+        size_menu.add_command(label="小  50%", command=lambda: self._set_font_scale(0.5))
+        self._menu.add_cascade(label="调节大小", menu=size_menu)
         self._menu.add_separator()
 
         # 开机自启动
@@ -439,8 +458,8 @@ class DesktopWidget:
         # 🍅 番茄钟
         self._pomo_visible_var = tk.BooleanVar(
             value=self.settings.get("pomo_visible", True))
-        self._pomo_menu = tk.Menu(self._menu, tearoff=0, bg=HERMES, fg="white",
-                                  activebackground="#D4602A", activeforeground="white",
+        self._pomo_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
+                                  activebackground="#E0E0E0", activeforeground="black",
                                   borderwidth=1, relief="solid")
         self._pomo_menu.add_command(label="开始专注", command=self._pomo_start_focus)
         self._pomo_menu.add_command(label="暂停",     command=self._pomo_pause)
@@ -454,8 +473,8 @@ class DesktopWidget:
         self._menu.add_cascade(label="🍅 番茄钟", menu=self._pomo_menu)
 
         # ⏰ 闹钟
-        self._alarm_menu = tk.Menu(self._menu, tearoff=0, bg=HERMES, fg="white",
-                                   activebackground="#D4602A", activeforeground="white",
+        self._alarm_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
+                                   activebackground="#E0E0E0", activeforeground="black",
                                    borderwidth=1, relief="solid")
         self._alarm_menu.add_command(label="添加闹钟", command=self._alarm_add)
         self._alarm_menu.add_command(label="管理闹钟", command=self._alarm_manager)
@@ -465,8 +484,8 @@ class DesktopWidget:
         self._menu.add_cascade(label="⏰ 闹钟", menu=self._alarm_menu)
 
         # ⚡ 系统工具
-        self._tools_menu = tk.Menu(self._menu, tearoff=0, bg=HERMES, fg="white",
-                                   activebackground="#D4602A", activeforeground="white",
+        self._tools_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
+                                   activebackground="#E0E0E0", activeforeground="black",
                                    borderwidth=1, relief="solid")
         self._tools_menu.add_command(label="释放内存",      command=self._clean_memory)
         self._tools_menu.add_command(label="清理临时文件",  command=self._clean_temp_files)
@@ -478,9 +497,9 @@ class DesktopWidget:
         self._menu.add_cascade(label="⚡ 系统工具", menu=self._tools_menu)
 
         self._menu.add_separator()
-        self._menu.add_command(label="关于", command=self._show_about)
         if HAS_TRAY:
             self._menu.add_command(label="最小化到托盘", command=self._minimize_to_tray)
+        self._menu.add_command(label="关于", command=self._show_about)
         self._menu.add_separator()
         self._menu.add_command(label="退出", command=self._quit)
 
@@ -519,8 +538,6 @@ class DesktopWidget:
 
         tk.Label(win, text="桌面网速时钟", fg="white", bg=HERMES_ORANGE,
                  font=("Microsoft YaHei", 14, "bold")).pack(pady=(20, 5))
-        tk.Label(win, text="桌面网速时钟小部件程序", fg="white", bg=HERMES_ORANGE,
-                 font=("Microsoft YaHei", 10)).pack(pady=2)
 
         author_frame = tk.Frame(win, bg=HERMES_ORANGE)
         author_frame.pack(pady=4)
@@ -692,7 +709,7 @@ class DesktopWidget:
             total_gb = mem.total / 1024**3
             self.sys_label.config(
                 text=f"🖥 CPU {cpu:.0f}%   RAM {used_gb:.1f}/{total_gb:.0f} GB")
-            self._update_sys_visibility()
+            self._relayout()
         except Exception:
             pass
         self.root.after(2000, self.update_system_info)
@@ -702,21 +719,23 @@ class DesktopWidget:
         self.save_settings()
         self._apply_font_scale()
 
-    # ── 📐 字体缩放 + 显示开关 ────────────────────────────
+    # ── 📐 布局重排（统一处理显示/隐藏 + 字号） ────────────
 
-    def _update_pomo_visibility(self):
+    def _relayout(self):
+        """按当前显示设置重新排列所有标签行"""
         s = self.settings.get("font_scale", 1.0)
-        if self.settings.get("pomo_visible", True):
-            self.pomo_label.pack(pady=(int(1 * s), int(1 * s)), before=self.net_label)
-        else:
-            self.pomo_label.pack_forget()
-
-    def _update_sys_visibility(self):
-        s = self.settings.get("font_scale", 1.0)
+        # 全部解包
+        for w in (self.time_label, self.date_label, self.sys_label,
+                  self.pomo_label, self.net_label):
+            w.pack_forget()
+        # 按顺序重新打包
+        self.time_label.pack(pady=(int(2 * s), int(1 * s)))
+        self.date_label.pack(pady=(int(2 * s), int(1 * s)))
         if self.settings.get("show_sys_info", True):
-            self.sys_label.pack(pady=(int(1 * s), int(1 * s)), before=self.pomo_label)
-        else:
-            self.sys_label.pack_forget()
+            self.sys_label.pack(pady=(int(1 * s), int(1 * s)))
+        if self.settings.get("pomo_visible", True):
+            self.pomo_label.pack(pady=(int(1 * s), int(1 * s)))
+        self.net_label.pack(pady=(int(2 * s), int(4 * s)))
 
     def _apply_font_scale(self):
         """按 font_scale 重新设置所有字号、显示状态，并重算窗口大小"""
@@ -733,14 +752,9 @@ class DesktopWidget:
         if hasattr(self, '_sv_var'):
             self._sv_var.set(self.settings.get("show_sys_info", True))
 
-        # 按比例调整容器和标签的间距，确保文字不被裁剪
+        # 所有标签间距由 _relayout 统一处理
         self.main_frame.pack_configure(padx=int(24 * s), pady=int(12 * s))
-        self.time_label.pack_configure(pady=(int(4 * s), int(2 * s)))
-        self.date_label.pack_configure(pady=(int(4 * s), int(2 * s)))
-
-        self._update_sys_visibility()
-        self._update_pomo_visibility()
-        self.net_label.pack_configure(pady=(int(2 * s), int(4 * s)))
+        self._relayout()
 
         # 用 update() 确保完整布局后再取尺寸
         self.root.update()
@@ -753,53 +767,28 @@ class DesktopWidget:
         self.save_settings()
         self._apply_font_scale()
 
-    def _adjust_font_scale(self):
-        """整体大小调节滑块对话框"""
-        HERMES = "#E8652E"
-        win = tk.Toplevel(self.root)
-        win.title("调节大小")
-        win.geometry("320x140+{}+{}".format(
-            self.root.winfo_x() + 50, self.root.winfo_y() + 80))
-        win.resizable(False, False)
-        win.attributes("-topmost", True)
-        win.configure(bg=HERMES)
+    def _set_font_scale(self, scale):
+        """快捷设置字号大小：1.0=大 0.75=中 0.5=小"""
+        self.settings["font_scale"] = scale
+        self._apply_font_scale()
+        self.save_settings()
 
-        tk.Label(win, text="调节整体大小", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 11)).pack(pady=(10, 2))
-
-        scale_var = tk.StringVar(
-            value=f"{int(self.settings.get('font_scale', 1.0) * 100)}%")
-        tk.Label(win, textvariable=scale_var, fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 13, "bold")).pack()
-
-        slider = tk.Scale(win, from_=50, to=200, orient="horizontal",
-                          length=250, bg=HERMES, fg="white",
-                          troughcolor="#D4602A")
-        slider.set(int(self.settings.get("font_scale", 1.0) * 100))
-        slider.pack(pady=5)
-
-        def apply(val):
-            v = max(50, min(200, int(val))) / 100.0
-            self.settings["font_scale"] = v
-            self._apply_font_scale()
-            self.save_settings()
-            scale_var.set(f"{int(v * 100)}%")
-
-        slider.config(command=apply)
 
     # ════════════════════════════════════════════════════════
     #  ⚡ 系统工具
     # ════════════════════════════════════════════════════════
 
     def _clean_memory(self):
-        """一键释放物理内存（多步深度清理）"""
+        """一键释放物理内存（后台线程，不卡界面）"""
+        messagebox.showinfo("释放内存", "正在后台释放内存，稍后会通知结果。")
+        threading.Thread(target=self._clean_memory_worker, daemon=True).start()
+
+    def _clean_memory_worker(self):
+        """内存清理工作线程"""
         try:
             before_free = psutil.virtual_memory().available / 1024**3
-
-            # 第一步：清理当前进程工作集
             _empty_working_set()
-
-            # 第二步：对所有可访问的进程调用 EmptyWorkingSet
+            # 所有进程 EmptyWorkingSet
             try:
                 for p in psutil.process_iter(['pid']):
                     try:
@@ -812,64 +801,54 @@ class DesktopWidget:
                         pass
             except Exception:
                 pass
-
-            # 第三步：调用 Windows 内置内存压缩（Win10/11 可用）
+            # 系统备用内存列表清除
             try:
                 ctypes.windll.ntdll.NtSetSystemInformation(
-                    0x4D,  # SystemMemoryListInformation
-                    ctypes.byref(ctypes.c_int(0x02)),  # MemoryPurgeStandbyList
-                    ctypes.sizeof(ctypes.c_int)
-                )
+                    0x4D, ctypes.byref(ctypes.c_int(0x02)), ctypes.sizeof(ctypes.c_int))
             except Exception:
                 pass
-
             after_free = psutil.virtual_memory().available / 1024**3
             freed = after_free - before_free
-
-            if freed > 0.05:
-                msg = (f"深度清理完成！\n\n"
-                       f"释放可用内存：{freed:.2f} GB\n"
-                       f"可用：{before_free:.2f} GB → {after_free:.2f} GB\n"
-                       f"总内存：{psutil.virtual_memory().total / 1024**3:.0f} GB")
-            else:
-                msg = (f"内存已优化\n\n"
-                       f"当前可用：{after_free:.2f} GB / "
-                       f"{psutil.virtual_memory().total / 1024**3:.0f} GB")
-            messagebox.showinfo("释放内存", msg)
+            def show_result():
+                if freed > 0.05:
+                    messagebox.showinfo("释放内存",
+                        f"深度清理完成！\n释放可用内存：{freed:.2f} GB\n"
+                        f"可用：{before_free:.2f} GB → {after_free:.2f} GB\n"
+                        f"总内存：{psutil.virtual_memory().total / 1024**3:.0f} GB")
+                else:
+                    messagebox.showinfo("释放内存",
+                        f"内存已优化\n当前可用：{after_free:.2f} GB / "
+                        f"{psutil.virtual_memory().total / 1024**3:.0f} GB")
+            self.root.after(0, show_result)
         except Exception as e:
-            messagebox.showerror("释放内存", f"操作失败：{e}")
+            self.root.after(0, lambda: messagebox.showerror("释放内存", f"操作失败：{e}"))
 
     def _clean_temp_files(self):
-        """扫描并深度清理系统临时文件"""
-        user = os.environ.get("USERNAME", "")
+        """扫描并深度清理临时文件（后台线程，不卡界面）"""
+        messagebox.showinfo("清理临时文件", "正在后台扫描临时文件，稍后会显示结果。")
+        threading.Thread(target=self._clean_temp_worker, daemon=True).start()
+
+    def _clean_temp_worker(self):
+        """磁盘清理工作线程：扫描 + 确认 + 清理"""
         windir = os.environ.get("WINDIR", "C:\\Windows")
         localappdata = os.environ.get("LOCALAPPDATA", "")
         appdata = os.environ.get("APPDATA", "")
-
         clean_locations = [
             (os.environ.get("TEMP", ""),                      "用户临时文件 (%TEMP%)"),
             (os.path.join(windir, "Temp"),                    "系统临时文件 (Windows\\Temp)"),
             (os.path.join(windir, "Prefetch"),                "预读取缓存 (Prefetch)"),
-            (os.path.join(windir, "SoftwareDistribution", "Download"),
-                                                              "Windows 更新缓存"),
+            (os.path.join(windir, "SoftwareDistribution", "Download"), "Windows 更新缓存"),
             (os.path.join(localappdata, "CrashDumps"),        "程序崩溃转储"),
             (os.path.join(localappdata, "D3DSCache"),         "Direct3D 缓存"),
-            (os.path.join(appdata, "Microsoft", "Windows", "Recent"),
-                                                              "最近文档列表"),
-            # 浏览器缓存
-            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Cache"),
-                                                              "Chrome 缓存"),
-            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Code Cache"),
-                                                              "Chrome Code Cache"),
-            (os.path.join(localappdata, "Microsoft", "Edge", "User Data", "Default", "Cache"),
-                                                              "Edge 缓存"),
+            (os.path.join(appdata, "Microsoft", "Windows", "Recent"), "最近文档列表"),
+            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Cache"), "Chrome 缓存"),
+            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Code Cache"), "Chrome Code Cache"),
+            (os.path.join(localappdata, "Microsoft", "Edge", "User Data", "Default", "Cache"), "Edge 缓存"),
             (os.path.join(appdata, "Mozilla", "Firefox", "Profiles"), "Firefox 缓存"),
         ]
-
         total_size = 0
         details = []
         valid_dirs = []
-
         for dpath, dname in clean_locations:
             if not dpath or not os.path.isdir(dpath):
                 continue
@@ -879,63 +858,56 @@ class DesktopWidget:
                 for root_dir, dirs, files in os.walk(dpath):
                     for f in files:
                         try:
-                            fp = os.path.join(root_dir, f)
-                            size += os.path.getsize(fp)
+                            size += os.path.getsize(os.path.join(root_dir, f))
                             count += 1
-                        except (OSError, PermissionError):
+                        except Exception:
                             pass
-                    # 限制深度
-                    depth = root_dir.count(os.sep) - dpath.count(os.sep)
-                    if depth > 4:
+                    if root_dir.count(os.sep) - dpath.count(os.sep) > 4:
                         dirs.clear()
                 if count > 0:
                     size_mb = size / 1024**2
                     details.append(f"  {dname}：{count} 个文件，{size_mb:.1f} MB")
                     total_size += size
                     valid_dirs.append(dpath)
-            except (PermissionError, OSError):
-                pass
-
-        total_mb = total_size / 1024**2
-        if total_mb < 0.1:
-            messagebox.showinfo("清理临时文件", "没有需要清理的临时文件。")
-            return
-
-        msg = f"找到约 {total_mb:.1f} MB 可清理的垃圾文件：\n\n"
-        msg += "\n".join(details)
-        msg += "\n\n⚠️ 建议先关闭浏览器再清理缓存。"
-        msg += "\n确定要删除吗？"
-
-        if not messagebox.askyesno("深度磁盘清理", msg):
-            return
-
-        # 执行清理
-        deleted = 0
-        errors = 0
-        for dpath in valid_dirs:
-            try:
-                for item in Path(dpath).iterdir():
-                    try:
-                        if item.is_file():
-                            item.unlink()
-                            deleted += 1
-                        elif item.is_dir():
-                            shutil.rmtree(item, ignore_errors=True)
-                            deleted += 1
-                    except (OSError, PermissionError):
-                        errors += 1
             except Exception:
                 pass
 
-        # 额外：清空回收站（静默）
-        try:
-            ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
-            deleted += 1  # 象征性计数
-        except Exception:
-            pass
+        total_mb = total_size / 1024**2
 
-        messagebox.showinfo("清理完成",
-                            f"已清理 {deleted} 个项目（{errors} 个跳过，因权限不足）")
+        def confirm_and_clean():
+            if total_mb < 0.1:
+                messagebox.showinfo("清理临时文件", "没有需要清理的临时文件。")
+                return
+            msg = f"找到约 {total_mb:.1f} MB 可清理的垃圾文件：\n\n"
+            msg += "\n".join(details)
+            msg += "\n\n⚠️ 建议先关闭浏览器再清理。\n确定要删除吗？"
+            if not messagebox.askyesno("深度磁盘清理", msg):
+                return
+            # 清理
+            deleted_errors = [0, 0]
+            def do_clean():
+                for dpath in valid_dirs:
+                    try:
+                        for item in Path(dpath).iterdir():
+                            try:
+                                if item.is_file():
+                                    item.unlink()
+                                elif item.is_dir():
+                                    shutil.rmtree(item, ignore_errors=True)
+                                deleted_errors[0] += 1
+                            except Exception:
+                                deleted_errors[1] += 1
+                    except Exception:
+                        pass
+                try:
+                    ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
+                except Exception:
+                    pass
+                self.root.after(0, lambda: messagebox.showinfo("清理完成",
+                    f"已清理 {deleted_errors[0]} 个项目（{deleted_errors[1]} 个跳过）"))
+            threading.Thread(target=do_clean, daemon=True).start()
+
+        self.root.after(0, confirm_and_clean)
 
     # ════════════════════════════════════════════════════════
     #  🍅 番茄钟
@@ -1070,6 +1042,15 @@ class DesktopWidget:
                 winsound.PlaySound(sound, winsound.SND_FILENAME | winsound.SND_ASYNC)
             else:
                 _play_mp3(sound)
+        elif sound:
+            # 尝试从打包资源中查找
+            res_path = _resource_path(sound)
+            if os.path.isfile(res_path):
+                ext = os.path.splitext(res_path)[1].lower()
+                if ext == ".wav":
+                    winsound.PlaySound(res_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                else:
+                    _play_mp3(res_path)
         else:
             _play_builtin_beep("beep")
 
@@ -1335,7 +1316,6 @@ class DesktopWidget:
             self._tray_icon.stop()
         self.root.after(0, self._quit)
 
-    # ── 退出 ──────────────────────────────────────────────
     def _quit(self):
         self.settings["x"] = self.root.winfo_x()
         self.settings["y"] = self.root.winfo_y()
@@ -1367,6 +1347,16 @@ class DesktopWidget:
                 json.dump(self.settings, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
+
+        content = final.get("content", "")
+        if content:
+            self.history.append({"role": "assistant", "content": content})
+
+        # 如果AI又返回了新的tool_calls（多轮，例如先列表再读文件），递归处理
+        if final.get("tool_calls") and content == "":
+            new_result = self.chat("请继续根据已有信息分析")
+            return new_result.get("content", content)
+        return content
 
 
 # ══════════════════════════════════════════════════════════════
