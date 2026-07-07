@@ -1177,19 +1177,19 @@ class DesktopWidget:
             self.save_settings()
             win.destroy()
 
-        # macOS 风格立体按钮
+        # 标准按钮
         btn_f = tk.Frame(win, bg=BG)
         btn_f.pack(pady=(10, 5))
-        for txt, cmd, clr in [("确定", save_alarm, BLUE), ("取消", win.destroy, "#555")]:
-            fb = tk.Frame(btn_f, bg=clr, bd=1, relief="raised",
-                          highlightbackground="#666" if clr=="#555" else "#4A8BC8",
-                          highlightthickness=1, cursor="hand2")
-            lb = tk.Label(fb, text=txt, fg="white", bg=clr,
-                          font=("Microsoft YaHei", 10), cursor="hand2")
-            lb.pack(padx=24, pady=4)
-            fb.bind("<Button-1>", lambda e, c=cmd: c())
-            lb.bind("<Button-1>", lambda e, c=cmd: c())
-            fb.pack(side="left", padx=6)
+        tk.Button(btn_f, text="确定", command=save_alarm,
+                  width=10, bg="#5B9BD5", fg="white",
+                  activebackground="#4A8BC8", activeforeground="white",
+                  relief="raised", bd=2, padx=10, pady=4,
+                  font=("Microsoft YaHei", 11)).pack(side="left", padx=6)
+        tk.Button(btn_f, text="取消", command=win.destroy,
+                  width=10, bg="#555", fg="white",
+                  activebackground="#666", activeforeground="white",
+                  relief="raised", bd=2, padx=10, pady=4,
+                  font=("Microsoft YaHei", 11)).pack(side="left", padx=6)
 
     def _alarm_manager(self):
         """管理闹钟列表"""
