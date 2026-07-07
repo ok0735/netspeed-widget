@@ -705,16 +705,16 @@ class DesktopWidget:
     # ── 📐 字体缩放 + 显示开关 ────────────────────────────
 
     def _update_pomo_visibility(self):
-        """根据设置显示/隐藏番茄钟行"""
+        s = self.settings.get("font_scale", 1.0)
         if self.settings.get("pomo_visible", True):
-            self.pomo_label.pack(pady=(1, 1), before=self.net_label)
+            self.pomo_label.pack(pady=(int(1 * s), int(1 * s)), before=self.net_label)
         else:
             self.pomo_label.pack_forget()
 
     def _update_sys_visibility(self):
-        """根据设置显示/隐藏CPU内存行"""
+        s = self.settings.get("font_scale", 1.0)
         if self.settings.get("show_sys_info", True):
-            self.sys_label.pack(pady=(1, 1), before=self.pomo_label)
+            self.sys_label.pack(pady=(int(1 * s), int(1 * s)), before=self.pomo_label)
         else:
             self.sys_label.pack_forget()
 
@@ -733,10 +733,17 @@ class DesktopWidget:
         if hasattr(self, '_sv_var'):
             self._sv_var.set(self.settings.get("show_sys_info", True))
 
+        # 按比例调整容器和标签的间距，确保文字不被裁剪
+        self.main_frame.pack_configure(padx=int(12 * s), pady=int(6 * s))
+        self.time_label.pack_configure(pady=(int(2 * s), int(1 * s)))
+        self.date_label.pack_configure(pady=(int(2 * s), int(1 * s)))
+
         self._update_sys_visibility()
         self._update_pomo_visibility()
+        self.net_label.pack_configure(pady=(int(1 * s), int(2 * s)))
 
-        self.root.update_idletasks()
+        # 用 update() 确保完整布局后再取尺寸
+        self.root.update()
         w = self.root.winfo_width()
         h = self.root.winfo_height()
         self.root.geometry(f"{w}x{h}+{self.settings['x']}+{self.settings['y']}")
