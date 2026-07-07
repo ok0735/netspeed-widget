@@ -215,6 +215,9 @@ DEFAULT_SETTINGS = {
     "alarm_sound": "beep",       # "beep" / "chime" / "alarm" / "gentle" / 文件路径
     # 系统
     "show_sys_info": True,       # 是否显示CPU/内存行
+    # 显示
+    "font_scale": 1.0,           # 整体字号缩放（0.5x ~ 2.0x）
+    "pomo_visible": True,        # 是否显示番茄钟
 }
 
 
@@ -268,13 +271,8 @@ class DesktopWidget:
         self._tray_icon = None
 
         self._build_ui()
-        self.root.geometry(f"+{self.settings['x']}+{self.settings['y']}")
-
+        self._apply_font_scale()
         self.root.resizable(False, False)
-        self.root.update_idletasks()
-        w = self.root.winfo_width()
-        h = self.root.winfo_height()
-        self.root.geometry(f"{w}x{h}+{self.settings['x']}+{self.settings['y']}")
 
         # 拦截关闭按钮 → 最小化到托盘（如果有托盘支持）
         if HAS_TRAY:
@@ -315,47 +313,54 @@ class DesktopWidget:
         self.main_frame = tk.Frame(self.root, bg="black")
         self.main_frame.pack(padx=12, pady=6)
 
-        # ----- 时间（48px） -----
+        scale = self.settings.get("font_scale", 1.0)
+        time_size   = int(48 * scale)
+        date_size   = int(24 * scale)
+        sys_size    = int(20 * scale)
+        pomo_size   = int(20 * scale)
+        net_size    = int(24 * scale)
+
+        # ----- 时间 -----
         self.time_label = OutlinedLabel(
             self.main_frame,
             text="00:00:00",
-            font=("Consolas", 48, "bold"),
+            font=("Consolas", time_size, "bold"),
             fg=self.settings["color"], bg="black", cursor="hand2",
         )
         self.time_label.pack(pady=(2, 0))
 
-        # ----- 年月日星期（24px） -----
+        # ----- 年月日星期 -----
         self.date_label = OutlinedLabel(
             self.main_frame,
             text="----年--月--日 星期-",
-            font=("Microsoft YaHei", 24, "bold"),
+            font=("Microsoft YaHei", date_size, "bold"),
             fg=self.settings["color"], bg="black",
         )
         self.date_label.pack(pady=(2, 1))
 
-        # ----- 🖥 CPU + 内存（20px） -----
+        # ----- 🖥 CPU + 内存 -----
         self.sys_label = OutlinedLabel(
             self.main_frame,
             text="🖥 CPU --%   RAM --/-- GB",
-            font=("Consolas", 20, "bold"),
+            font=("Consolas", sys_size, "bold"),
             fg=self.settings["color"], bg="black",
         )
         self.sys_label.pack(pady=(1, 1))
 
-        # ----- 🍅 番茄钟（20px） -----
+        # ----- 🍅 番茄钟 -----
         self.pomo_label = OutlinedLabel(
             self.main_frame,
             text="🍅 未开始",
-            font=("Microsoft YaHei", 20, "bold"),
+            font=("Microsoft YaHei", pomo_size, "bold"),
             fg=self.settings["color"], bg="black",
         )
         self.pomo_label.pack(pady=(1, 1))
 
-        # ----- 网速（24px） -----
+        # ----- 网速 -----
         self.net_label = OutlinedLabel(
             self.main_frame,
             text="↑ 0.00 KB/s  ↓ 0.00 KB/s",
-            font=("Consolas", 24, "bold"),
+            font=("Consolas", net_size, "bold"),
             fg=self.settings["color"], bg="black",
         )
         self.net_label.pack(pady=(0, 2))
@@ -421,6 +426,7 @@ class DesktopWidget:
                              borderwidth=1, relief="solid")
         self._menu.add_command(label="更改颜色",  command=self._choose_color)
         self._menu.add_command(label="调节透明度", command=self._adjust_opacity)
+        self._menu.add_command(label="调节大小",   command=self._adjust_font_scale)
         self._menu.add_separator()
 
         # 开机自启动
@@ -431,12 +437,18 @@ class DesktopWidget:
         self._menu.add_separator()
 
         # 🍅 番茄钟
+        self._pomo_visible_var = tk.BooleanVar(
+            value=self.settings.get("pomo_visible", True))
         self._pomo_menu = tk.Menu(self._menu, tearoff=0, bg=HERMES, fg="white",
                                   activebackground="#D4602A", activeforeground="white",
                                   borderwidth=1, relief="solid")
         self._pomo_menu.add_command(label="开始专注", command=self._pomo_start_focus)
         self._pomo_menu.add_command(label="暂停",     command=self._pomo_pause)
         self._pomo_menu.add_command(label="重置",     command=self._pomo_reset)
+        self._pomo_menu.add_separator()
+        self._pomo_menu.add_checkbutton(label="显示番茄钟",
+                                        variable=self._pomo_visible_var,
+                                        command=self._toggle_pomo_visible)
         self._pomo_menu.add_separator()
         self._pomo_menu.add_command(label="设置...",  command=self._pomo_settings)
         self._menu.add_cascade(label="🍅 番茄钟", menu=self._pomo_menu)
@@ -678,12 +690,9 @@ class DesktopWidget:
             mem = psutil.virtual_memory()
             used_gb = mem.used / 1024**3
             total_gb = mem.total / 1024**3
-            if self.settings.get("show_sys_info", True):
-                self.sys_label.config(
-                    text=f"🖥 CPU {cpu:.0f}%   RAM {used_gb:.1f}/{total_gb:.0f} GB")
-                self.sys_label.pack(pady=(1, 1))
-            else:
-                self.sys_label.pack_forget()
+            self.sys_label.config(
+                text=f"🖥 CPU {cpu:.0f}%   RAM {used_gb:.1f}/{total_gb:.0f} GB")
+            self._update_sys_visibility()
         except Exception:
             pass
         self.root.after(2000, self.update_system_info)
@@ -691,6 +700,85 @@ class DesktopWidget:
     def _toggle_sys_info(self):
         self.settings["show_sys_info"] = self._sv_var.get()
         self.save_settings()
+        self._apply_font_scale()
+
+    # ── 📐 字体缩放 + 显示开关 ────────────────────────────
+
+    def _update_pomo_visibility(self):
+        """根据设置显示/隐藏番茄钟行"""
+        if self.settings.get("pomo_visible", True):
+            self.pomo_label.pack(pady=(1, 1), before=self.net_label)
+        else:
+            self.pomo_label.pack_forget()
+
+    def _update_sys_visibility(self):
+        """根据设置显示/隐藏CPU内存行"""
+        if self.settings.get("show_sys_info", True):
+            self.sys_label.pack(pady=(1, 1), before=self.pomo_label)
+        else:
+            self.sys_label.pack_forget()
+
+    def _apply_font_scale(self):
+        """按 font_scale 重新设置所有字号、显示状态，并重算窗口大小"""
+        s = self.settings.get("font_scale", 1.0)
+        self.time_label.config(font=("Consolas", int(48 * s), "bold"))
+        self.date_label.config(font=("Microsoft YaHei", int(24 * s), "bold"))
+        self.sys_label.config(font=("Consolas", int(20 * s), "bold"))
+        self.pomo_label.config(font=("Microsoft YaHei", int(20 * s), "bold"))
+        self.net_label.config(font=("Consolas", int(24 * s), "bold"))
+
+        # 刷新 visibility 变量状态
+        if hasattr(self, '_pomo_visible_var'):
+            self._pomo_visible_var.set(self.settings.get("pomo_visible", True))
+        if hasattr(self, '_sv_var'):
+            self._sv_var.set(self.settings.get("show_sys_info", True))
+
+        self._update_sys_visibility()
+        self._update_pomo_visibility()
+
+        self.root.update_idletasks()
+        w = self.root.winfo_width()
+        h = self.root.winfo_height()
+        self.root.geometry(f"{w}x{h}+{self.settings['x']}+{self.settings['y']}")
+
+    def _toggle_pomo_visible(self):
+        self.settings["pomo_visible"] = self._pomo_visible_var.get()
+        self.save_settings()
+        self._apply_font_scale()
+
+    def _adjust_font_scale(self):
+        """整体大小调节滑块对话框"""
+        HERMES = "#E8652E"
+        win = tk.Toplevel(self.root)
+        win.title("调节大小")
+        win.geometry("320x140+{}+{}".format(
+            self.root.winfo_x() + 50, self.root.winfo_y() + 80))
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.configure(bg=HERMES)
+
+        tk.Label(win, text="调节整体大小", fg="white", bg=HERMES,
+                 font=("Microsoft YaHei", 11)).pack(pady=(10, 2))
+
+        scale_var = tk.StringVar(
+            value=f"{int(self.settings.get('font_scale', 1.0) * 100)}%")
+        tk.Label(win, textvariable=scale_var, fg="white", bg=HERMES,
+                 font=("Microsoft YaHei", 13, "bold")).pack()
+
+        slider = tk.Scale(win, from_=50, to=200, orient="horizontal",
+                          length=250, bg=HERMES, fg="white",
+                          troughcolor="#D4602A")
+        slider.set(int(self.settings.get("font_scale", 1.0) * 100))
+        slider.pack(pady=5)
+
+        def apply(val):
+            v = max(50, min(200, int(val))) / 100.0
+            self.settings["font_scale"] = v
+            self._apply_font_scale()
+            self.save_settings()
+            scale_var.set(f"{int(v * 100)}%")
+
+        slider.config(command=apply)
 
     # ════════════════════════════════════════════════════════
     #  ⚡ 系统工具
