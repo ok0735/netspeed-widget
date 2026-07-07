@@ -559,18 +559,12 @@ class DesktopWidget:
         link_lb.pack(pady=(0, 6))
         link_lb.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/ok0735"))
 
-        # 确认按钮（立体感）
-        btn_f = tk.Frame(win, bg="#5B9BD5", bd=1, relief="raised",
-                         highlightbackground="#4A8BC8", highlightthickness=1,
-                         cursor="hand2")
-        btn_lb = tk.Label(btn_f, text="确定", fg="white", bg="#5B9BD5",
-                          font=("Microsoft YaHei", 10), cursor="hand2")
-        btn_lb.pack(padx=30, pady=5)
-        def close_about(e=None):
-            win.destroy()
-        btn_f.bind("<Button-1>", close_about)
-        btn_lb.bind("<Button-1>", close_about)
-        btn_f.pack(pady=(6, 0))
+        # 确认按钮
+        tk.Button(win, text="确定", command=win.destroy,
+                  width=12, bg="#5B9BD5", fg="white",
+                  activebackground="#4A8BC8", activeforeground="white",
+                  relief="raised", bd=2, padx=10, pady=4,
+                  font=("Microsoft YaHei", 11)).pack(pady=(8, 0))
 
     # ── 颜色 ──────────────────────────────────────────────
     def _choose_color(self):
@@ -1272,8 +1266,8 @@ class DesktopWidget:
                 return
             idx = int(sel[0])
             if messagebox.askyesno("删除闹钟", "确定删除该闹钟？"):
-                alarms.pop(idx)
-                self.settings["alarms"] = alarms
+                new_list = [a for i, a in enumerate(self.settings.get("alarms", [])) if i != idx]
+                self.settings["alarms"] = new_list
                 self.save_settings()
                 win.destroy()
                 self._alarm_manager()
