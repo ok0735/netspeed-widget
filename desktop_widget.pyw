@@ -529,33 +529,41 @@ class DesktopWidget:
     def _show_about(self):
         win = tk.Toplevel(self.root)
         win.title("关于")
-        win.geometry("380x200+{}+{}".format(
+        win.geometry("340x210+{}+{}".format(
             self.root.winfo_x() + 80, self.root.winfo_y() + 80))
         win.resizable(False, False)
         win.attributes("-topmost", True)
-        HERMES_ORANGE = "#E8652E"
-        win.configure(bg=HERMES_ORANGE)
+        win.configure(bg="#2D2D2D")
 
-        tk.Label(win, text="桌面网速时钟", fg="white", bg=HERMES_ORANGE,
-                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(20, 5))
+        # 标题
+        tk.Label(win, text="桌面网速时钟", fg="white", bg="#2D2D2D",
+                 font=("Microsoft YaHei", 16, "bold")).pack(pady=(24, 2))
 
-        author_frame = tk.Frame(win, bg=HERMES_ORANGE)
-        author_frame.pack(pady=4)
-        tk.Label(author_frame, text="作者：朱济来", fg="white", bg=HERMES_ORANGE,
-                 font=("Microsoft YaHei", 10)).pack(side="left")
+        # 分隔线
+        tk.Frame(win, bg="#555", height=1).pack(fill="x", padx=50)
 
-        link_frame = tk.Frame(win, bg=HERMES_ORANGE)
-        link_frame.pack(pady=2)
-        link_label = tk.Label(link_frame, text="ok0735",
-                              fg="white", bg=HERMES_ORANGE, cursor="hand2",
-                              font=("Microsoft YaHei", 10, "underline"))
-        link_label.pack(side="left")
-        link_label.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/ok0735"))
+        # 作者
+        tk.Label(win, text="作者：朱济来", fg="#AAAAAA", bg="#2D2D2D",
+                 font=("Microsoft YaHei", 10)).pack(pady=(8, 0))
 
-        tk.Button(win, text="确定", command=win.destroy,
-                  width=10, bg="#333", fg="white",
-                  activebackground="#555", activeforeground="white",
-                  bd=0, padx=10, pady=3).pack(pady=10)
+        # 可点击链接
+        link_lb = tk.Label(win, text="ok0735 →", fg="#5B9BD5", bg="#2D2D2D",
+                           cursor="hand2", font=("Microsoft YaHei", 10, "underline"))
+        link_lb.pack(pady=(0, 6))
+        link_lb.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/ok0735"))
+
+        # 确认按钮（立体感）
+        btn_f = tk.Frame(win, bg="#5B9BD5", bd=1, relief="raised",
+                         highlightbackground="#4A8BC8", highlightthickness=1,
+                         cursor="hand2")
+        btn_lb = tk.Label(btn_f, text="确定", fg="white", bg="#5B9BD5",
+                          font=("Microsoft YaHei", 10), cursor="hand2")
+        btn_lb.pack(padx=30, pady=5)
+        def close_about(e=None):
+            win.destroy()
+        btn_f.bind("<Button-1>", close_about)
+        btn_lb.bind("<Button-1>", close_about)
+        btn_f.pack(pady=(6, 0))
 
     # ── 颜色 ──────────────────────────────────────────────
     def _choose_color(self):
@@ -1056,23 +1064,28 @@ class DesktopWidget:
 
     def _alarm_check(self):
         """每 30 秒检查是否有闹钟触发"""
-        now = datetime.datetime.now()
-        key = now.strftime("%H:%M")
-        if key != self._last_alarm_minute:
-            self._last_alarm_minute = key
-            alarms = self.settings.get("alarms", [])
-            for alarm in alarms:
-                if not alarm.get("enabled", True):
-                    continue
-                if alarm.get("time") != key:
-                    continue
-                # 检查星期
-                days = alarm.get("days", [])
-                if days and now.weekday() not in days:
-                    continue
-                # 触发！
-                msg = alarm.get("message", "闹钟")
-                threading.Thread(target=self._alarm_trigger, args=(msg,), daemon=True).start()
+        try:
+            now = datetime.datetime.now()
+            key = now.strftime("%H:%M")
+            if key != self._last_alarm_minute:
+                self._last_alarm_minute = key
+                alarms = self.settings.get("alarms", [])
+                for alarm in alarms:
+                    if not alarm.get("enabled", True):
+                        continue
+                    if alarm.get("time") != key:
+                        continue
+                    # 跳过刚创建不到60秒的闹钟（防止添加时立即触发）
+                    created = alarm.get("created_at", 0)
+                    if created and time.time() - created < 60:
+                        continue
+                    days = alarm.get("days", [])
+                    if days and now.weekday() not in days:
+                        continue
+                    msg = alarm.get("message", "闹钟")
+                    threading.Thread(target=self._alarm_trigger, args=(msg,), daemon=True).start()
+        except Exception:
+            pass
         self.root.after(30000, self._alarm_check)
 
     def _alarm_trigger(self, message):
@@ -1090,58 +1103,61 @@ class DesktopWidget:
         self.root.focus_force()
 
     def _alarm_add(self):
-        """添加闹钟对话框"""
-        HERMES = "#E8652E"
+        """添加闹钟对话框（macOS 风格）"""
+        BG = "#2D2D2D"
+        CARD = "#3A3A3A"
+        BLUE = "#5B9BD5"
         win = tk.Toplevel(self.root)
         win.title("添加闹钟")
-        win.geometry("320x260+{}+{}".format(
+        win.geometry("340x280+{}+{}".format(
             self.root.winfo_x() + 50, self.root.winfo_y() + 50))
         win.resizable(False, False)
         win.attributes("-topmost", True)
-        win.configure(bg=HERMES)
+        win.configure(bg=BG)
 
-        tk.Label(win, text="添加闹钟", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 13, "bold")).pack(pady=(10, 5))
+        tk.Label(win, text="⏰ 添加闹钟", fg="white", bg=BG,
+                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(14, 6))
+        tk.Frame(win, bg="#555", height=1).pack(fill="x", padx=40)
 
         # 时间
-        tf = tk.Frame(win, bg=HERMES)
-        tf.pack(pady=5)
-        tk.Label(tf, text="时间：", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 10)).pack(side="left")
+        tf = tk.Frame(win, bg=BG)
+        tf.pack(pady=8)
+        tk.Label(tf, text="时间", fg="#AAAAAA", bg=BG,
+                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
         hour_var = tk.StringVar(value="08")
         min_var  = tk.StringVar(value="00")
         tk.Spinbox(tf, from_=0, to=23, width=3, textvariable=hour_var,
                    format="%02.0f", justify="center",
-                   bd=1, relief="solid").pack(side="left")
-        tk.Label(tf, text=":", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 12, "bold")).pack(side="left")
+                   bd=1, relief="solid", bg=CARD, fg="white").pack(side="left")
+        tk.Label(tf, text=":", fg="white", bg=BG,
+                 font=("Microsoft YaHei", 14, "bold")).pack(side="left")
         tk.Spinbox(tf, from_=0, to=59, width=3, textvariable=min_var,
                    format="%02.0f", justify="center",
-                   bd=1, relief="solid").pack(side="left")
+                   bd=1, relief="solid", bg=CARD, fg="white").pack(side="left")
 
         # 消息
-        mf = tk.Frame(win, bg=HERMES)
+        mf = tk.Frame(win, bg=BG)
         mf.pack(pady=5)
-        tk.Label(mf, text="提醒：", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 10)).pack(side="left")
-        msg_entry = tk.Entry(mf, width=20, bd=1, relief="solid")
+        tk.Label(mf, text="提醒", fg="#AAAAAA", bg=BG,
+                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
+        msg_entry = tk.Entry(mf, width=22, bd=1, relief="solid", bg=CARD, fg="white")
         msg_entry.insert(0, "该做事了！")
         msg_entry.pack(side="left")
 
         # 重复
-        rf = tk.Frame(win, bg=HERMES)
+        rf = tk.Frame(win, bg=BG)
         rf.pack(pady=5)
+        tk.Label(rf, text="重复", fg="#AAAAAA", bg=BG,
+                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
         days_map = {"一": 0, "二": 1, "三": 2, "四": 3,
                     "五": 4, "六": 5, "日": 6}
         day_vars = {}
-        tk.Label(rf, text="重复：", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 10)).pack(side="left")
         for dn, dv in days_map.items():
             var = tk.BooleanVar(value=False)
             day_vars[dn] = var
             tk.Checkbutton(rf, text=dn, variable=var,
-                           bg=HERMES, fg="white", selectcolor="#333",
-                           activebackground="#D4602A",
+                           bg=BG, fg="white", selectcolor=CARD,
+                           activebackground="#444",
                            activeforeground="white").pack(side="left")
 
         def save_alarm():
@@ -1150,13 +1166,10 @@ class DesktopWidget:
             time_str = f"{hour}:{minute}"
             msg = msg_entry.get() or "闹钟"
             days = [day_vars[dn].get() for dn in days_map]
-            # 如果某天都没选，表示每天
             active_days = [i for i, v in enumerate(days) if v]
             alarm = {
-                "time": time_str,
-                "message": msg,
-                "days": active_days,  # 空列表 = 每天
-                "enabled": True,
+                "time": time_str, "message": msg, "days": active_days,
+                "enabled": True, "created_at": time.time(),
             }
             alarms = self.settings.get("alarms", [])
             alarms.append(alarm)
@@ -1164,16 +1177,19 @@ class DesktopWidget:
             self.save_settings()
             win.destroy()
 
-        btn_f = tk.Frame(win, bg=HERMES)
-        btn_f.pack(pady=10)
-        tk.Button(btn_f, text="确定", command=save_alarm,
-                  width=10, bg="#333", fg="white",
-                  activebackground="#555", activeforeground="white",
-                  bd=0, padx=10, pady=3).pack(side="left", padx=5)
-        tk.Button(btn_f, text="取消", command=win.destroy,
-                  width=10, bg="#555", fg="white",
-                  activebackground="#777", activeforeground="white",
-                  bd=0, padx=10, pady=3).pack(side="left", padx=5)
+        # macOS 风格立体按钮
+        btn_f = tk.Frame(win, bg=BG)
+        btn_f.pack(pady=(10, 5))
+        for txt, cmd, clr in [("确定", save_alarm, BLUE), ("取消", win.destroy, "#555")]:
+            fb = tk.Frame(btn_f, bg=clr, bd=1, relief="raised",
+                          highlightbackground="#666" if clr=="#555" else "#4A8BC8",
+                          highlightthickness=1, cursor="hand2")
+            lb = tk.Label(fb, text=txt, fg="white", bg=clr,
+                          font=("Microsoft YaHei", 10), cursor="hand2")
+            lb.pack(padx=24, pady=4)
+            fb.bind("<Button-1>", lambda e, c=cmd: c())
+            lb.bind("<Button-1>", lambda e, c=cmd: c())
+            fb.pack(side="left", padx=6)
 
     def _alarm_manager(self):
         """管理闹钟列表"""
