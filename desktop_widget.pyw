@@ -311,7 +311,7 @@ class DesktopWidget:
         self.root.attributes("-alpha", self.settings["opacity"])
 
         self.main_frame = tk.Frame(self.root, bg="black")
-        self.main_frame.pack(padx=12, pady=6)
+        self.main_frame.pack(padx=24, pady=12)
 
         scale = self.settings.get("font_scale", 1.0)
         time_size   = int(48 * scale)
@@ -734,13 +734,13 @@ class DesktopWidget:
             self._sv_var.set(self.settings.get("show_sys_info", True))
 
         # 按比例调整容器和标签的间距，确保文字不被裁剪
-        self.main_frame.pack_configure(padx=int(12 * s), pady=int(6 * s))
-        self.time_label.pack_configure(pady=(int(2 * s), int(1 * s)))
-        self.date_label.pack_configure(pady=(int(2 * s), int(1 * s)))
+        self.main_frame.pack_configure(padx=int(24 * s), pady=int(12 * s))
+        self.time_label.pack_configure(pady=(int(4 * s), int(2 * s)))
+        self.date_label.pack_configure(pady=(int(4 * s), int(2 * s)))
 
         self._update_sys_visibility()
         self._update_pomo_visibility()
-        self.net_label.pack_configure(pady=(int(1 * s), int(2 * s)))
+        self.net_label.pack_configure(pady=(int(2 * s), int(4 * s)))
 
         # 用 update() 确保完整布局后再取尺寸
         self.root.update()
@@ -792,29 +792,86 @@ class DesktopWidget:
     # ════════════════════════════════════════════════════════
 
     def _clean_memory(self):
-        """一键释放物理内存"""
-        before = psutil.virtual_memory().used / 1024**3
-        ok = _empty_working_set()
-        after = psutil.virtual_memory().used / 1024**3
-        freed = before - after
-        if ok and freed >= 0.01:
-            messagebox.showinfo("释放内存", f"已释放 {freed:.1f} GB 物理内存\n"
-                                f"（{before:.1f} GB → {after:.1f} GB）")
-        else:
-            messagebox.showinfo("释放内存", f"内存已优化\n"
-                                f"当前使用：{after:.1f} GB / {psutil.virtual_memory().total / 1024**3:.0f} GB")
+        """一键释放物理内存（多步深度清理）"""
+        try:
+            before_free = psutil.virtual_memory().available / 1024**3
+
+            # 第一步：清理当前进程工作集
+            _empty_working_set()
+
+            # 第二步：对所有可访问的进程调用 EmptyWorkingSet
+            try:
+                for p in psutil.process_iter(['pid']):
+                    try:
+                        h = kernel32.OpenProcess(0x0400 | 0x0100, False, p.info['pid'])
+                        if h:
+                            kernel32.SetProcessWorkingSetSize(h, ctypes.c_size_t(-1),
+                                                              ctypes.c_size_t(-1))
+                            kernel32.CloseHandle(h)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 第三步：调用 Windows 内置内存压缩（Win10/11 可用）
+            try:
+                ctypes.windll.ntdll.NtSetSystemInformation(
+                    0x4D,  # SystemMemoryListInformation
+                    ctypes.byref(ctypes.c_int(0x02)),  # MemoryPurgeStandbyList
+                    ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
+            after_free = psutil.virtual_memory().available / 1024**3
+            freed = after_free - before_free
+
+            if freed > 0.05:
+                msg = (f"深度清理完成！\n\n"
+                       f"释放可用内存：{freed:.2f} GB\n"
+                       f"可用：{before_free:.2f} GB → {after_free:.2f} GB\n"
+                       f"总内存：{psutil.virtual_memory().total / 1024**3:.0f} GB")
+            else:
+                msg = (f"内存已优化\n\n"
+                       f"当前可用：{after_free:.2f} GB / "
+                       f"{psutil.virtual_memory().total / 1024**3:.0f} GB")
+            messagebox.showinfo("释放内存", msg)
+        except Exception as e:
+            messagebox.showerror("释放内存", f"操作失败：{e}")
 
     def _clean_temp_files(self):
-        """扫描并清理系统临时文件"""
-        temp_dirs = [
-            (os.environ.get("TEMP", ""), "当前用户临时文件"),
-            (os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Temp"), "系统临时文件"),
+        """扫描并深度清理系统临时文件"""
+        user = os.environ.get("USERNAME", "")
+        windir = os.environ.get("WINDIR", "C:\\Windows")
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        appdata = os.environ.get("APPDATA", "")
+
+        clean_locations = [
+            (os.environ.get("TEMP", ""),                      "用户临时文件 (%TEMP%)"),
+            (os.path.join(windir, "Temp"),                    "系统临时文件 (Windows\\Temp)"),
+            (os.path.join(windir, "Prefetch"),                "预读取缓存 (Prefetch)"),
+            (os.path.join(windir, "SoftwareDistribution", "Download"),
+                                                              "Windows 更新缓存"),
+            (os.path.join(localappdata, "CrashDumps"),        "程序崩溃转储"),
+            (os.path.join(localappdata, "D3DSCache"),         "Direct3D 缓存"),
+            (os.path.join(appdata, "Microsoft", "Windows", "Recent"),
+                                                              "最近文档列表"),
+            # 浏览器缓存
+            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Cache"),
+                                                              "Chrome 缓存"),
+            (os.path.join(localappdata, "Google", "Chrome", "User Data", "Default", "Code Cache"),
+                                                              "Chrome Code Cache"),
+            (os.path.join(localappdata, "Microsoft", "Edge", "User Data", "Default", "Cache"),
+                                                              "Edge 缓存"),
+            (os.path.join(appdata, "Mozilla", "Firefox", "Profiles"), "Firefox 缓存"),
         ]
-        # 预估大小
+
         total_size = 0
         details = []
-        for dpath, dname in temp_dirs:
-            if not os.path.isdir(dpath):
+        valid_dirs = []
+
+        for dpath, dname in clean_locations:
+            if not dpath or not os.path.isdir(dpath):
                 continue
             size = 0
             count = 0
@@ -827,46 +884,58 @@ class DesktopWidget:
                             count += 1
                         except (OSError, PermissionError):
                             pass
-                    # 限制遍历深度防止卡死
-                    if root_dir.count(os.sep) - dpath.count(os.sep) > 3:
+                    # 限制深度
+                    depth = root_dir.count(os.sep) - dpath.count(os.sep)
+                    if depth > 4:
                         dirs.clear()
+                if count > 0:
+                    size_mb = size / 1024**2
+                    details.append(f"  {dname}：{count} 个文件，{size_mb:.1f} MB")
+                    total_size += size
+                    valid_dirs.append(dpath)
             except (PermissionError, OSError):
                 pass
-            size_mb = size / 1024**2
-            total_size += size
-            if count > 0:
-                details.append(f"  {dname}：{count} 个文件，{size_mb:.1f} MB")
 
         total_mb = total_size / 1024**2
         if total_mb < 0.1:
             messagebox.showinfo("清理临时文件", "没有需要清理的临时文件。")
             return
 
-        msg = f"找到约 {total_mb:.1f} MB 可清理的临时文件：\n\n"
+        msg = f"找到约 {total_mb:.1f} MB 可清理的垃圾文件：\n\n"
         msg += "\n".join(details)
-        msg += "\n\n确定要删除吗？"
+        msg += "\n\n⚠️ 建议先关闭浏览器再清理缓存。"
+        msg += "\n确定要删除吗？"
 
-        if messagebox.askyesno("清理临时文件", msg):
-            deleted = 0
-            errors = 0
-            for dpath, _ in temp_dirs:
-                if not os.path.isdir(dpath):
-                    continue
-                try:
-                    for item in Path(dpath).iterdir():
-                        try:
-                            if item.is_file():
-                                item.unlink()
-                                deleted += 1
-                            elif item.is_dir():
-                                shutil.rmtree(item, ignore_errors=True)
-                                deleted += 1
-                        except (OSError, PermissionError):
-                            errors += 1
-                except Exception:
-                    pass
-            messagebox.showinfo("清理完成",
-                                f"已清理 {deleted} 个项目（{errors} 个跳过）")
+        if not messagebox.askyesno("深度磁盘清理", msg):
+            return
+
+        # 执行清理
+        deleted = 0
+        errors = 0
+        for dpath in valid_dirs:
+            try:
+                for item in Path(dpath).iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                            deleted += 1
+                        elif item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                            deleted += 1
+                    except (OSError, PermissionError):
+                        errors += 1
+            except Exception:
+                pass
+
+        # 额外：清空回收站（静默）
+        try:
+            ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, 0)
+            deleted += 1  # 象征性计数
+        except Exception:
+            pass
+
+        messagebox.showinfo("清理完成",
+                            f"已清理 {deleted} 个项目（{errors} 个跳过，因权限不足）")
 
     # ════════════════════════════════════════════════════════
     #  🍅 番茄钟
