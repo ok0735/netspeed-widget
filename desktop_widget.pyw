@@ -6,6 +6,7 @@
   - 大字体时间显示 (HH:MM:SS)
   - 年月日星期显示
   - 实时网速上下行 (↑↓ KB/s / MB/s) — 自动合并所有网卡
+  - 🍅 番茄钟：25分钟专注 + 5分钟休息，自动循环
   - 鼠标拖动定位
   - 右键菜单：自定义颜色、开机自启动、鼠标穿透切换
   - 半透明/不透明调节
@@ -123,6 +124,11 @@ DEFAULT_SETTINGS = {
     "auto_start": False,
     "x": 200,
     "y": 100,
+    # 番茄钟设置
+    "pomo_duration": 25,         # 专注时长（分钟）
+    "pomo_break": 5,             # 短休时长（分钟）
+    "pomo_long_break": 15,       # 长休时长（分钟）
+    "pomo_count_target": 4,      # 几个番茄钟后长休
 }
 
 
@@ -163,6 +169,12 @@ class DesktopWidget:
         self.ntp_offset = 0
         self.ntp_updated = False
 
+        # ── 番茄钟状态 ──
+        self.pomo_state = "idle"       # idle / focus / break / long_break
+        self.pomo_remaining = 0        # 剩余秒数
+        self.pomo_count = 0            # 已完成番茄钟数
+        self.pomo_running = False      # 是否在倒计时中（vs 暂停）
+
         self._build_ui()
         self.root.geometry(f"+{self.settings['x']}+{self.settings['y']}")
 
@@ -179,6 +191,7 @@ class DesktopWidget:
         # 启动定时器
         self.update_clock()
         self.update_network()
+        self._pomo_tick()
 
         # 开机自启动同步：如果设置中开启了但注册表中没有，则补上
         if self.settings.get("auto_start", False):
@@ -228,6 +241,16 @@ class DesktopWidget:
         )
         self.date_label.pack(pady=(2, 1))
 
+        # ----- 🍅 番茄钟（20px，居中） -----
+        self.pomo_label = OutlinedLabel(
+            self.main_frame,
+            text="🍅 未开始",
+            font=("Microsoft YaHei", 20, "bold"),
+            fg=self.settings["color"],
+            bg="black",
+        )
+        self.pomo_label.pack(pady=(1, 1))
+
         # ----- 网速（24px，一行显示上下行，居中） -----
         self.net_label = OutlinedLabel(
             self.main_frame,
@@ -242,6 +265,7 @@ class DesktopWidget:
         self._bind_drag(self.root)
         self._bind_drag(self.time_label)
         self._bind_drag(self.date_label)
+        self._bind_drag(self.pomo_label)
         self._bind_drag(self.main_frame)
         self._bind_drag(self.net_label)
         self._bind_context_menu()
@@ -280,7 +304,6 @@ class DesktopWidget:
         widget.bind("<Button-1>",      self._drag_start)
         widget.bind("<B1-Motion>",     self._drag_move)
         widget.bind("<ButtonRelease-1>", self._drag_stop)
-        # SafeLabel (tk.Label) 默认 cursor 不为手型时也设为 hand2
         try:
             widget.config(cursor="hand2")
         except Exception:
@@ -316,18 +339,47 @@ class DesktopWidget:
                                    variable=self._as_var,
                                    command=self._toggle_auto_start)
         self._menu.add_separator()
+
+        # ── 番茄钟菜单 ──
+        self._pomo_menu = tk.Menu(self._menu, tearoff=0, bg=HERMES, fg="white",
+                                  activebackground="#D4602A", activeforeground="white",
+                                  borderwidth=1, relief="solid")
+        self._pomo_menu.add_command(label="开始专注", command=self._pomo_start_focus)
+        self._pomo_menu.add_command(label="暂停",     command=self._pomo_pause)
+        self._pomo_menu.add_command(label="重置",     command=self._pomo_reset)
+        self._pomo_menu.add_separator()
+        self._pomo_menu.add_command(label="设置...",  command=self._pomo_settings)
+        self._menu.add_cascade(label="🍅 番茄钟", menu=self._pomo_menu)
+
+        self._menu.add_separator()
         self._menu.add_command(label="关于", command=self._show_about)
         self._menu.add_separator()
         self._menu.add_command(label="退出", command=self._quit)
 
         for w in (self.root, self.main_frame, self.time_label,
-                  self.date_label, self.net_label):
+                  self.date_label, self.pomo_label, self.net_label):
             w.bind("<Button-3>", self._show_menu)
             # 部分系统上右键也可能是 <Button-2>
             w.bind("<Button-2>", self._show_menu)
 
     def _show_menu(self, event):
+        # 动态更新番茄钟子菜单状态
+        self._update_pomo_menu()
         self._menu.tk_popup(event.x_root, event.y_root)
+
+    def _update_pomo_menu(self):
+        """打开右键菜单前，动态调整番茄钟按钮状态"""
+        items = self._pomo_menu
+        if self.pomo_state == "idle":
+            items.entryconfig(0, label="开始专注", state="normal")
+            items.entryconfig(1, label="暂停",     state="disabled")
+        elif self.pomo_state in ("focus", "break", "long_break"):
+            if self.pomo_running:
+                items.entryconfig(0, label="开始专注", state="disabled")
+                items.entryconfig(1, label="暂停",     state="normal")
+            else:
+                items.entryconfig(0, label="继续",     state="normal")
+                items.entryconfig(1, label="暂停",     state="disabled")
 
     # ── 关于 ───────────────────────────────────────────────
     def _show_about(self):
@@ -382,6 +434,7 @@ class DesktopWidget:
         color = self.settings["color"]
         self.time_label.config(fg=color)
         self.date_label.config(fg=color)
+        self.pomo_label.config(fg=color)
         self.net_label.config(fg=color)
 
     # ── 透明度 ─────────────────────────────────────────────
@@ -522,6 +575,157 @@ class DesktopWidget:
             self.net_label.config(text="↑ -- KB/s  ↓ -- KB/s")
 
         self.root.after(1000, self.update_network)
+
+    # ══════════════════════════════════════════════════════
+    #  🍅 番茄钟
+    # ══════════════════════════════════════════════════════
+
+    def _pomo_update_label(self):
+        """更新番茄钟显示文本"""
+        if self.pomo_state == "idle":
+            self.pomo_label.config(text="🍅 未开始")
+            return
+
+        mins = self.pomo_remaining // 60
+        secs = self.pomo_remaining % 60
+
+        if self.pomo_state == "focus":
+            label = "专注"
+        elif self.pomo_state == "break":
+            label = "休息"
+        elif self.pomo_state == "long_break":
+            label = "长休"
+        else:
+            label = "?"
+
+        if self.pomo_running:
+            self.pomo_label.config(text=f"🍅 {label} {mins:02d}:{secs:02d}")
+        else:
+            self.pomo_label.config(text=f"🍅 {label} {mins:02d}:{secs:02d} ⏸")
+
+    def _pomo_play_alarm(self):
+        """番茄钟到点响铃"""
+        # 系统响铃
+        self.root.bell()
+        self.root.bell()
+        self.root.bell()
+
+    def _pomo_next_state(self):
+        """切换到下一个状态（专注→休息→专注→...→长休→专注）"""
+        if self.pomo_state == "focus":
+            # 完成一个番茄钟
+            self.pomo_count += 1
+            if self.pomo_count >= self.settings["pomo_count_target"]:
+                # 满 4 个 → 长休
+                self.pomo_state = "long_break"
+                self.pomo_remaining = self.settings["pomo_long_break"] * 60
+                self.pomo_count = 0
+            else:
+                self.pomo_state = "break"
+                self.pomo_remaining = self.settings["pomo_break"] * 60
+        else:
+            # 休息/长休结束 → 专注
+            self.pomo_state = "focus"
+            self.pomo_remaining = self.settings["pomo_duration"] * 60
+
+        self.pomo_running = True
+        self._pomo_update_label()
+
+    def _pomo_start_focus(self):
+        """开始一个专注番茄钟"""
+        self.pomo_state = "focus"
+        self.pomo_remaining = self.settings["pomo_duration"] * 60
+        self.pomo_running = True
+        self._pomo_update_label()
+
+    def _pomo_pause(self):
+        """暂停当前番茄钟"""
+        if self.pomo_state != "idle" and self.pomo_running:
+            self.pomo_running = False
+            self._pomo_update_label()
+
+    def _pomo_resume(self):
+        """恢复暂停的番茄钟"""
+        if self.pomo_state != "idle" and not self.pomo_running:
+            self.pomo_running = True
+            self._pomo_update_label()
+
+    def _pomo_reset(self):
+        """重置番茄钟到空闲状态"""
+        self.pomo_state = "idle"
+        self.pomo_remaining = 0
+        self.pomo_running = False
+        self.pomo_count = 0
+        self._pomo_update_label()
+
+    def _pomo_tick(self):
+        """每秒心跳：处理番茄钟倒计时"""
+        if self.pomo_state != "idle" and self.pomo_running:
+            self.pomo_remaining -= 1
+            if self.pomo_remaining <= 0:
+                # 到时间了
+                self._pomo_play_alarm()
+                self._pomo_next_state()
+            else:
+                self._pomo_update_label()
+
+        self.root.after(1000, self._pomo_tick)
+
+    def _pomo_settings(self):
+        """番茄钟设置对话框"""
+        HERMES = "#E8652E"
+        win = tk.Toplevel(self.root)
+        win.title("番茄钟设置")
+        win.geometry("320x250+{}+{}".format(
+            self.root.winfo_x() + 50, self.root.winfo_y() + 50))
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.configure(bg=HERMES)
+
+        tk.Label(win, text="番茄钟设置", fg="white", bg=HERMES,
+                 font=("Microsoft YaHei", 13, "bold")).pack(pady=(12, 5))
+
+        fields = [
+            ("专注时长（分）", "pomo_duration"),
+            ("短休时长（分）", "pomo_break"),
+            ("长休时长（分）", "pomo_long_break"),
+            ("几个番茄后长休", "pomo_count_target"),
+        ]
+        entries = {}
+        for label, key in fields:
+            row = tk.Frame(win, bg=HERMES)
+            row.pack(pady=3, fill="x", padx=20)
+            tk.Label(row, text=label, fg="white", bg=HERMES,
+                     font=("Microsoft YaHei", 10), width=14, anchor="w").pack(side="left")
+            e = tk.Entry(row, width=6, justify="center", bd=1, relief="solid")
+            e.insert(0, str(self.settings[key]))
+            e.pack(side="right")
+            entries[key] = e
+
+        def save_pomo_settings():
+            try:
+                self.settings["pomo_duration"] = max(1, int(entries["pomo_duration"].get()))
+                self.settings["pomo_break"] = max(1, int(entries["pomo_break"].get()))
+                self.settings["pomo_long_break"] = max(1, int(entries["pomo_long_break"].get()))
+                self.settings["pomo_count_target"] = max(1, int(entries["pomo_count_target"].get()))
+                self.save_settings()
+                # 如果当前处于空闲状态，立即更新标签提示新时长
+                if self.pomo_state == "idle":
+                    self._pomo_update_label()
+                win.destroy()
+            except ValueError:
+                pass
+
+        btn_frame = tk.Frame(win, bg=HERMES)
+        btn_frame.pack(pady=(10, 5))
+        tk.Button(btn_frame, text="确定", command=save_pomo_settings,
+                  width=10, bg="#333", fg="white",
+                  activebackground="#555", activeforeground="white",
+                  bd=0, padx=10, pady=3).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="取消", command=win.destroy,
+                  width=10, bg="#555", fg="white",
+                  activebackground="#777", activeforeground="white",
+                  bd=0, padx=10, pady=3).pack(side="left", padx=5)
 
     # ── 退出 ───────────────────────────────────────────────
     def _quit(self):
