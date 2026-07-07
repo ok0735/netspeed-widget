@@ -93,23 +93,25 @@ def _stop_mp3():
         pass
 
 
-def _play_builtin_beep(pattern="beep"):
-    """内置提示音"""
-    if pattern == "beep":
-        winsound.Beep(800, 200)
-        winsound.Beep(1000, 200)
-        winsound.Beep(1200, 300)
+def _play_builtin_beep(pattern="gentle"):
+    """内置提示音（更长更温和）"""
+    if pattern == "gentle":
+        winsound.Beep(392, 600)
+        time.sleep(0.08)
+        winsound.Beep(523, 600)
+        time.sleep(0.08)
+        winsound.Beep(659, 800)
+    elif pattern == "beep":
+        winsound.Beep(600, 400)
+        winsound.Beep(800, 500)
     elif pattern == "chime":
-        winsound.Beep(523, 150)
-        winsound.Beep(659, 150)
-        winsound.Beep(784, 300)
+        winsound.Beep(523, 300)
+        winsound.Beep(659, 300)
+        winsound.Beep(784, 500)
     elif pattern == "alarm":
-        for _ in range(3):
-            winsound.Beep(880, 300)
-            time.sleep(0.1)
-    elif pattern == "gentle":
-        winsound.Beep(440, 400)
-        winsound.Beep(660, 400)
+        for _ in range(4):
+            winsound.Beep(660, 250)
+            time.sleep(0.12)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -186,17 +188,7 @@ PYTHON_PATH   = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
 if not os.path.isfile(PYTHON_PATH):
     PYTHON_PATH = sys.executable
 
-# 打包资源路径辅助函数（exe 运行时用 sys._MEIPASS）
-def _resource_path(relative_path):
-    """获取资源文件路径，兼容开发模式和 exe 打包模式"""
-    if getattr(sys, 'frozen', False):
-        base = sys._MEIPASS
-    else:
-        base = SCRIPT_DIR
-    return os.path.join(base, relative_path)
-
-# 默认提醒铃声
-DEFAULT_ALARM_SOUND = _resource_path("ml.mp3")
+# 默认提醒铃声为内置音
 
 # 清理旧的快捷方式自启动（已废弃）
 OLD_STARTUP_DIR = os.path.join(
@@ -224,7 +216,7 @@ DEFAULT_SETTINGS = {
     "pomo_count_target": 4,
     # 闹钟
     "alarms": [],
-    "alarm_sound": "ml.mp3",    # 内置铃声（ml.mp3 已打包进 exe）
+    "alarm_sound": "gentle",     # 内置温和提示音
     # 系统
     "show_sys_info": True,       # 是否显示CPU/内存行
     # 显示
@@ -1053,15 +1045,6 @@ class DesktopWidget:
                 winsound.PlaySound(sound, winsound.SND_FILENAME | winsound.SND_ASYNC)
             else:
                 _play_mp3(sound)
-        elif sound:
-            # 尝试从打包资源中查找
-            res_path = _resource_path(sound)
-            if os.path.isfile(res_path):
-                ext = os.path.splitext(res_path)[1].lower()
-                if ext == ".wav":
-                    winsound.PlaySound(res_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                else:
-                    _play_mp3(res_path)
         else:
             _play_builtin_beep("beep")
 
