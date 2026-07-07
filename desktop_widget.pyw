@@ -311,10 +311,16 @@ class DesktopWidget:
         self.root.mainloop()
 
     def _ensure_visible(self):
+        """开机启动后，随机位置显示窗口"""
+        import random
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        rx = random.randint(50, max(50, sw - 400))
+        ry = random.randint(50, max(50, sh - 300))
+        self.root.geometry(f"+{rx}+{ry}")
         self.root.lift()
         self.root.attributes("-topmost", True)
         self.root.focus_force()
-        self.root.update_idletasks()
 
     # ── UI 构建 ────────────────────────────────────────────
     def _build_ui(self):
@@ -432,16 +438,17 @@ class DesktopWidget:
 
     # ── 右键菜单 ──────────────────────────────────────────
     def _bind_context_menu(self):
-        MENU_BG = "#F0F0F0"  # 浅灰背景
+        MENU_BG = "#F0F0F0"
+        MENU_FONT = ("Microsoft YaHei", 12)
         self._menu = tk.Menu(self.root, tearoff=0, bg=MENU_BG, fg="black",
                              activebackground="#E0E0E0", activeforeground="black",
-                             borderwidth=1, relief="solid")
+                             borderwidth=1, relief="solid", font=MENU_FONT)
         self._menu.add_command(label="更改颜色",  command=self._choose_color)
         self._menu.add_command(label="调节透明度", command=self._adjust_opacity)
         # 字号快速切换
         size_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
                             activebackground="#E0E0E0", activeforeground="black",
-                            borderwidth=1, relief="solid")
+                            borderwidth=1, relief="solid", font=MENU_FONT)
         size_menu.add_command(label="大 100%", command=lambda: self._set_font_scale(1.0))
         size_menu.add_command(label="中  75%", command=lambda: self._set_font_scale(0.75))
         size_menu.add_command(label="小  50%", command=lambda: self._set_font_scale(0.5))
@@ -460,7 +467,7 @@ class DesktopWidget:
             value=self.settings.get("pomo_visible", True))
         self._pomo_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
                                   activebackground="#E0E0E0", activeforeground="black",
-                                  borderwidth=1, relief="solid")
+                                  borderwidth=1, relief="solid", font=MENU_FONT)
         self._pomo_menu.add_command(label="开始专注", command=self._pomo_start_focus)
         self._pomo_menu.add_command(label="暂停",     command=self._pomo_pause)
         self._pomo_menu.add_command(label="重置",     command=self._pomo_reset)
@@ -475,7 +482,7 @@ class DesktopWidget:
         # ⏰ 闹钟
         self._alarm_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
                                    activebackground="#E0E0E0", activeforeground="black",
-                                   borderwidth=1, relief="solid")
+                                   borderwidth=1, relief="solid", font=MENU_FONT)
         self._alarm_menu.add_command(label="添加闹钟", command=self._alarm_add)
         self._alarm_menu.add_command(label="管理闹钟", command=self._alarm_manager)
         self._alarm_menu.add_separator()
@@ -486,7 +493,7 @@ class DesktopWidget:
         # ⚡ 系统工具
         self._tools_menu = tk.Menu(self._menu, tearoff=0, bg=MENU_BG, fg="black",
                                    activebackground="#E0E0E0", activeforeground="black",
-                                   borderwidth=1, relief="solid")
+                                   borderwidth=1, relief="solid", font=MENU_FONT)
         self._tools_menu.add_command(label="释放内存",      command=self._clean_memory)
         self._tools_menu.add_command(label="清理临时文件",  command=self._clean_temp_files)
         self._tools_menu.add_separator()
@@ -1089,12 +1096,26 @@ class DesktopWidget:
         self.root.after(30000, self._alarm_check)
 
     def _alarm_trigger(self, message):
-        """闹钟触发：播放铃声 + 显示窗口"""
+        """闹钟触发：播放铃声 + 显示窗口 + 3秒后自动关闭的提醒"""
         self._play_alarm_sound()
-        # 如果窗口隐藏了，显示出来
         self.root.after(0, self._show_window)
-        # 显示提醒对话框
-        self.root.after(0, lambda: messagebox.showinfo("⏰ 闹钟", message))
+        self.root.after(0, lambda: self._alarm_popup(message))
+
+    def _alarm_popup(self, message):
+        """闹钟弹出提示（3秒自动关闭，不要求点击确定）"""
+        win = tk.Toplevel(self.root)
+        win.title("⏰")
+        x = self.root.winfo_x() + 60
+        y = self.root.winfo_y() + 120
+        win.geometry(f"280x90+{x}+{y}")
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg="#2D2D2D")
+        tk.Label(win, text="⏰", fg="white", bg="#2D2D2D",
+                 font=("Microsoft YaHei", 24)).pack(pady=(8, 0))
+        tk.Label(win, text=message, fg="#5B9BD5", bg="#2D2D2D",
+                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(2, 4))
+        win.after(3000, win.destroy)
 
     def _show_window(self):
         self.root.deiconify()
@@ -1123,7 +1144,7 @@ class DesktopWidget:
         tf = tk.Frame(win, bg=BG)
         tf.pack(pady=8)
         tk.Label(tf, text="时间", fg="#AAAAAA", bg=BG,
-                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
+                 font=("Microsoft YaHei", 14)).pack(side="left", padx=(0, 8))
         hour_var = tk.StringVar(value="08")
         min_var  = tk.StringVar(value="00")
         tk.Spinbox(tf, from_=0, to=23, width=3, textvariable=hour_var,
@@ -1139,7 +1160,7 @@ class DesktopWidget:
         mf = tk.Frame(win, bg=BG)
         mf.pack(pady=5)
         tk.Label(mf, text="提醒", fg="#AAAAAA", bg=BG,
-                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
+                 font=("Microsoft YaHei", 14)).pack(side="left", padx=(0, 8))
         msg_entry = tk.Entry(mf, width=22, bd=1, relief="solid", bg=CARD, fg="white")
         msg_entry.insert(0, "该做事了！")
         msg_entry.pack(side="left")
@@ -1148,7 +1169,7 @@ class DesktopWidget:
         rf = tk.Frame(win, bg=BG)
         rf.pack(pady=5)
         tk.Label(rf, text="重复", fg="#AAAAAA", bg=BG,
-                 font=("Microsoft YaHei", 10)).pack(side="left", padx=(0, 8))
+                 font=("Microsoft YaHei", 14)).pack(side="left", padx=(0, 8))
         days_map = {"一": 0, "二": 1, "三": 2, "四": 3,
                     "五": 4, "六": 5, "日": 6}
         day_vars = {}
@@ -1203,7 +1224,7 @@ class DesktopWidget:
         win.configure(bg=HERMES)
 
         tk.Label(win, text="闹钟列表", fg="white", bg=HERMES,
-                 font=("Microsoft YaHei", 13, "bold")).pack(pady=(8, 2))
+                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(8, 2))
 
         alarms = self.settings.get("alarms", [])
         if not alarms:
@@ -1218,7 +1239,7 @@ class DesktopWidget:
         lb = tk.Listbox(win, bg="#222", fg="white",
                         selectbackground="#D4602A", selectforeground="white",
                         bd=1, relief="solid", height=8,
-                        font=("Microsoft YaHei", 10))
+                        font=("Microsoft YaHei", 14))
         lb.pack(pady=5, padx=10, fill="both", expand=True)
 
         day_names = ["一", "二", "三", "四", "五", "六", "日"]
@@ -1238,11 +1259,10 @@ class DesktopWidget:
             sel = lb.curselection()
             if not sel:
                 return
-            idx = sel[0]
+            idx = int(sel[0])
             alarms[idx]["enabled"] = not alarms[idx].get("enabled", True)
             self.settings["alarms"] = alarms
             self.save_settings()
-            # 刷新
             win.destroy()
             self._alarm_manager()
 
@@ -1250,7 +1270,7 @@ class DesktopWidget:
             sel = lb.curselection()
             if not sel:
                 return
-            idx = sel[0]
+            idx = int(sel[0])
             if messagebox.askyesno("删除闹钟", "确定删除该闹钟？"):
                 alarms.pop(idx)
                 self.settings["alarms"] = alarms
