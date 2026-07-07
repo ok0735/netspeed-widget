@@ -13,6 +13,7 @@
 
 import tkinter as tk
 from tkinter import colorchooser, messagebox
+import tkinter.font as tkfont
 import datetime
 import psutil
 import os
@@ -25,17 +26,69 @@ import threading
 import webbrowser
 
 
-class SafeLabel(tk.Label):
-    """稳定的文字标签，用法兼容 OutlinedLabel（支持 .config(text=...)/.config(fg=...)）"""
+class OutlinedLabel(tk.Canvas):
+    """带白色描边的文字标签，支持 .config(text=...) / .config(fg=...)"""
     def __init__(self, master, text="", font=None, fg="white", bg="black",
-                 cursor="hand2"):
-        super().__init__(master, text=text, font=font, fg=fg, bg=bg,
-                         cursor=cursor, bd=0, highlightthickness=0)
+                 outline_width=2, cursor="hand2"):
+        self._text = text
+        self._font = font or ("Microsoft YaHei", 12)
+        self._fg = fg
+        self._outline = outline_width
+
+        # 先创建 font 对象测量尺寸
+        f = tkfont.Font(font=self._font)
+        self._fw = f.measure(text) + outline_width * 4 + 4
+        self._fh = f.metrics("linespace") + outline_width * 2 + 4
+
+        super().__init__(master, width=self._fw, height=self._fh,
+                         bg=bg, highlightthickness=0, bd=0,
+                         cursor=cursor)
+        self._redraw()
 
     def config(self, **kwargs):
+        changed = False
+        if 'text' in kwargs:
+            self._text = kwargs.pop('text')
+            changed = True
+        if 'fg' in kwargs:
+            self._fg = kwargs.pop('fg')
+            changed = True
+        if 'font' in kwargs:
+            self._font = kwargs.pop('font')
+            changed = True
+        if changed:
+            f = tkfont.Font(font=self._font)
+            self._fw = f.measure(self._text) + self._outline * 4 + 4
+            self._fh = f.metrics("linespace") + self._outline * 2 + 4
+            self.configure(width=self._fw, height=self._fh)
         super().config(**kwargs)
+        if changed:
+            self._redraw()
 
     configure = config
+
+    def _redraw(self):
+        self.delete("all")
+        if not self._text:
+            return
+        cx = self.winfo_width() / 2
+        cy = self.winfo_height() / 2
+        if cx < 2 or cy < 2:
+            # 还没 layout 完成，用计算值
+            cx = self._fw / 2
+            cy = self._fh / 2
+
+        ow = self._outline
+        # 画白色描边（8方向偏移）
+        for dx in (-ow, 0, ow):
+            for dy in (-ow, 0, ow):
+                if dx == 0 and dy == 0:
+                    continue
+                self.create_text(cx + dx, cy + dy, text=self._text,
+                                 font=self._font, fill="white", anchor="center")
+        # 画前景文字
+        self.create_text(cx, cy, text=self._text, font=self._font,
+                         fill=self._fg, anchor="center")
 
 # ── 路径 ──────────────────────────────────────────────────────
 # PyInstaller 打包的 exe 用 sys.executable（exe 真实路径）
@@ -65,7 +118,7 @@ except OSError:
 
 # ── 默认设置 ─────────────────────────────────────────────────
 DEFAULT_SETTINGS = {
-    "color": "#00FFAA",
+    "color": "#FF3333",
     "opacity": 0.85,
     "auto_start": False,
     "x": 200,
@@ -77,6 +130,21 @@ DEFAULT_SETTINGS = {
 class DesktopWidget:
     # ── 初始化 ──────────────────────────────────────────────
     def __init__(self):
+        # 单实例：新启动的杀掉旧进程，只保留最新的一个
+        try:
+            cur_pid = os.getpid()
+            for p in psutil.process_iter(['pid', 'name']):
+                if p.info['pid'] == cur_pid:
+                    continue
+                if p.info['name'] and 'netspeed' in p.info['name'].lower():
+                    try:
+                        p.kill()
+                        p.wait(timeout=1)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
         self.root = tk.Tk()
         self.root.title("桌面时钟")
         self.root.overrideredirect(True)          # 无边框
@@ -140,7 +208,7 @@ class DesktopWidget:
         self.main_frame.pack(padx=12, pady=6)
 
         # ----- 时间（48px） -----
-        self.time_label = SafeLabel(
+        self.time_label = OutlinedLabel(
             self.main_frame,
             text="00:00:00",
             font=("Consolas", 48, "bold"),
@@ -148,27 +216,27 @@ class DesktopWidget:
             bg="black",
             cursor="hand2",
         )
-        self.time_label.pack(fill="x", pady=(2, 0))
+        self.time_label.pack(pady=(2, 0))
 
         # ----- 年月日星期（24px，居中） -----
-        self.date_label = SafeLabel(
+        self.date_label = OutlinedLabel(
             self.main_frame,
             text="----年--月--日 星期-",
             font=("Microsoft YaHei", 24, "bold"),
             fg=self.settings["color"],
             bg="black",
         )
-        self.date_label.pack(fill="x", pady=(2, 1))
+        self.date_label.pack(pady=(2, 1))
 
         # ----- 网速（24px，一行显示上下行，居中） -----
-        self.net_label = SafeLabel(
+        self.net_label = OutlinedLabel(
             self.main_frame,
             text="↑ 0.00 KB/s  ↓ 0.00 KB/s",
             font=("Consolas", 24, "bold"),
             fg=self.settings["color"],
             bg="black",
         )
-        self.net_label.pack(fill="x", pady=(0, 2))
+        self.net_label.pack(pady=(0, 2))
 
         # ----- 事件绑定 -----
         self._bind_drag(self.root)
@@ -234,7 +302,10 @@ class DesktopWidget:
 
     # ── 右键菜单 ───────────────────────────────────────────
     def _bind_context_menu(self):
-        self._menu = tk.Menu(self.root, tearoff=0)
+        HERMES = "#E8652E"
+        self._menu = tk.Menu(self.root, tearoff=0, bg=HERMES, fg="white",
+                             activebackground="#D4602A", activeforeground="white",
+                             borderwidth=1, relief="solid")
         self._menu.add_command(label="更改颜色",          command=self._choose_color)
         self._menu.add_command(label="调节透明度",         command=self._adjust_opacity)
         self._menu.add_separator()
@@ -262,34 +333,39 @@ class DesktopWidget:
     def _show_about(self):
         win = tk.Toplevel(self.root)
         win.title("关于")
-        win.geometry("360x180+{}+{}".format(
+        win.geometry("380x200+{}+{}".format(
             self.root.winfo_x() + 80, self.root.winfo_y() + 80))
         win.resizable(False, False)
         win.attributes("-topmost", True)
-        win.configure(bg="#222")
+        HERMES_ORANGE = "#E8652E"
+        win.configure(bg=HERMES_ORANGE)
 
         # 标题
-        tk.Label(win, text="桌面网速时钟", fg="#00FFAA", bg="#222",
+        tk.Label(win, text="桌面网速时钟", fg="white", bg=HERMES_ORANGE,
                  font=("Microsoft YaHei", 14, "bold")).pack(pady=(20, 5))
 
         # 描述
-        tk.Label(win, text="桌面网速时钟小部件程序", fg="white", bg="#222",
+        tk.Label(win, text="桌面网速时钟小部件程序", fg="white", bg=HERMES_ORANGE,
                  font=("Microsoft YaHei", 10)).pack(pady=2)
 
-        # 作者（可点击链接）
-        author_frame = tk.Frame(win, bg="#222")
-        author_frame.pack(pady=10)
-        tk.Label(author_frame, text="作者：", fg="white", bg="#222",
+        # 作者：朱济来
+        author_frame = tk.Frame(win, bg=HERMES_ORANGE)
+        author_frame.pack(pady=4)
+        tk.Label(author_frame, text="作者：朱济来", fg="white", bg=HERMES_ORANGE,
                  font=("Microsoft YaHei", 10)).pack(side="left")
-        author_link = tk.Label(author_frame, text="ok0735",
-                               fg="#4A9EFF", bg="#222", cursor="hand2",
-                               font=("Microsoft YaHei", 10, "underline"))
-        author_link.pack(side="left")
-        author_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/ok0735"))
+
+        # ok0735 可点击链接
+        link_frame = tk.Frame(win, bg=HERMES_ORANGE)
+        link_frame.pack(pady=2)
+        link_label = tk.Label(link_frame, text="ok0735",
+                              fg="white", bg=HERMES_ORANGE, cursor="hand2",
+                              font=("Microsoft YaHei", 10, "underline"))
+        link_label.pack(side="left")
+        link_label.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/ok0735"))
 
         # 关闭按钮
         tk.Button(win, text="确定", command=win.destroy,
-                  width=10, bg="#444", fg="white",
+                  width=10, bg="#333", fg="white",
                   activebackground="#555", activeforeground="white",
                   bd=0, padx=10, pady=3).pack(pady=10)
 
@@ -310,19 +386,20 @@ class DesktopWidget:
 
     # ── 透明度 ─────────────────────────────────────────────
     def _adjust_opacity(self):
+        HERMES = "#E8652E"
         win = tk.Toplevel(self.root)
         win.title("透明度")
         win.geometry("300x100+{}+{}".format(
             self.root.winfo_x() + 50, self.root.winfo_y() + 100))
         win.resizable(False, False)
         win.attributes("-topmost", True)
-        win.configure(bg="#222")
-        tk.Label(win, text="透明度调节", fg="white", bg="#222",
+        win.configure(bg=HERMES)
+        tk.Label(win, text="透明度调节", fg="white", bg=HERMES,
                  font=("Microsoft YaHei", 11)).pack(pady=(10, 5))
 
         slider = tk.Scale(win, from_=30, to=100, orient="horizontal",
-                          length=250, bg="#333", fg="white",
-                          troughcolor="#555")
+                          length=250, bg=HERMES, fg="white",
+                          troughcolor="#D4602A")
         slider.set(int(self.settings["opacity"] * 100))
         slider.pack(pady=5)
 
@@ -451,7 +528,10 @@ class DesktopWidget:
         self.settings["x"] = self.root.winfo_x()
         self.settings["y"] = self.root.winfo_y()
         self.save_settings()
+        # 先退出主循环，再销毁窗口，避免子窗口/after回调拖住进程
+        self.root.quit()
         self.root.destroy()
+        os._exit(0)
 
     # ── 持久化 ─────────────────────────────────────────────
     def load_settings(self):
